@@ -58,7 +58,11 @@ def _derive_key(password: str, salt: bytes) -> bytes:
         lanes=4,
         memory_cost=2**16,
     )
-    return kdf.derive(password.encode())
+    key = bytearray(kdf.derive(password.encode()))
+    key[0]  &= 248
+    key[31] &= 127
+    key[31] |= 64
+    return bytes(key)
 
 def _hash_pass(password: str) -> bytes:
     ph = PasswordHasher(
@@ -140,9 +144,9 @@ def _encrypt_password(pub: X25519PublicKey, plaintext: bytes, label: str, login:
     aead = ChaCha20Poly1305(key)
     nonce = secrets.token_bytes(12)
     aad = (label + "\n" + login).encode()
-    ct = aead.encrypt(nonce, plaintext, aad)
+    ciphertext = aead.encrypt(nonce, plaintext, aad)
 
-    return ct, nonce, eph_pub.public_bytes_raw()
+    return ciphertext, nonce, eph_pub.public_bytes_raw()
 
 def _get_password(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, bytes]:
     with _get_db_connection() as db:
@@ -162,8 +166,10 @@ def _get_password(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, bytes]:
     return label, login, ciphertext, nonce, eph_pub_bytes, username, salt
 
 def decrypt_password(pid: int, password: str) -> bytes | None:
-    label, login, ciphertext, nonce, eph_pub_bytes, username, salt = _get_password(pid)
-    
+    try:
+        label, login, ciphertext, nonce, eph_pub_bytes, username, salt = _get_password(pid)
+    except: return None
+
     if not auth_user(username, password): return None
     
     priv_bytes = _derive_key(password, salt)
@@ -195,6 +201,45 @@ def add_password(uid: int, label: str, login: str, password: str) -> bool:
     except Exception as e:
         print(f"Failed to add password: {e}")
         return False
+
+def delete_password(pid: int, password: str) -> bool:
+    with _get_db_connection() as db:
+        cursor = db.cursor()
+        cursor.execute("SELECT u.username FROM passwords AS p JOIN users AS u ON p.uid = u.uid WHERE p.pid = ?", (pid,))
+        row = cursor.fetchone()
+    if not row: return False
+    username = row[0]
+    uid = auth_user(username, password)
+    if not uid: return False
+
+    try:
+        with _get_db_connection() as db:
+            cursor = db.cursor()
+            cursor.execute("DELETE FROM passwords WHERE pid=? AND uid=? ", (pid, uid))
+            db.commit()
+        return True
+    except Exception as e:
+        print(f"Failed to delete password: {e}")
+        return False
+
+def update_password(pid: int, password: str, new_password: str) -> bool:
+    label, login, _, _, _, username, _ = _get_password(pid)
+    uid = auth_user(username, password)
+    if not uid: return False
+    try:
+        with _get_db_connection() as db:
+            cursor = db.cursor()
+            cursor.execute("DELETE FROM passwords WHERE pid=? AND uid=?", (pid, uid))
+
+            pub = _get_user_pub(uid)
+            ct, nonce, eph_pub = _encrypt_password(pub, new_password.encode(), label, login)
+            cursor.execute(
+                "INSERT INTO passwords (uid, label, login, password, nonce, eph_pub) VALUES (?, ?, ?, ?, ?, ?)",
+                (uid, label, login, ct, nonce, eph_pub)
+            )
+            db.commit()
+        return True
+    except: return False
 
 def get_passwords(uid: int) -> List[Tuple[int, str, str]]:
     with _get_db_connection() as db:
