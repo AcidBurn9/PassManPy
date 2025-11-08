@@ -1,2 +1,4 @@
 *.db
+*.pyc
 __pycache__/
+venv-passman/

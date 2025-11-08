@@ -1,6 +1,6 @@
 import sqlite3
 import secrets
-from typing import Optional, Tuple, List
+from typing import Tuple, List
 from argon2 import PasswordHasher
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.kdf.argon2 import Argon2id
@@ -81,6 +81,7 @@ def create_user(username: str, password: str) -> bool:
         priv_bytes = _derive_key(password, salt)
         priv = X25519PrivateKey.from_private_bytes(priv_bytes)
         pub = priv.public_key()
+        priv = None # wiping from memory as soon as not needed
 
         with _get_db_connection() as db:
             cursor = db.cursor()
@@ -89,12 +90,11 @@ def create_user(username: str, password: str) -> bool:
                 (username, _hash_pass(password), pub.public_bytes_raw(), salt),
             )
             db.commit()
-        
+
         return True
     except Exception as e:
         print(f"Failed to create user: {e}")
         return False
-
 
 def auth_user(username: str, password: str) -> int | None:
     with _get_db_connection() as db:
@@ -104,7 +104,7 @@ def auth_user(username: str, password: str) -> int | None:
 
     if not row: return None
     uid, passhash = row
-    
+
     ph = PasswordHasher(
         memory_cost=2**15,
         time_cost=4,
@@ -124,10 +124,10 @@ def _get_user_pub(uid: int) -> X25519PublicKey:
         row = cursor.fetchone()
 
     if not row: raise ValueError(f"User with uid {uid} not found")
-    
+
     pub_bytes = row[0]
     pub = X25519PublicKey.from_public_bytes(pub_bytes)
-    
+
     return pub
 
 
@@ -148,7 +148,7 @@ def _encrypt_password(pub: X25519PublicKey, plaintext: bytes, label: str, login:
 
     return ciphertext, nonce, eph_pub.public_bytes_raw()
 
-def _get_password(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, bytes]:
+def _get_password_data(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, bytes]:
     with _get_db_connection() as db:
         cursor = db.cursor()
         cursor.execute("""
@@ -165,18 +165,23 @@ def _get_password(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, bytes]:
 
     return label, login, ciphertext, nonce, eph_pub_bytes, username, salt
 
-def decrypt_password(pid: int, password: str) -> bytes | None:
+def _decrypt_password(pid: int, password: str) -> bytes | None:
     try:
-        label, login, ciphertext, nonce, eph_pub_bytes, username, salt = _get_password(pid)
+        label, login, ciphertext, nonce, eph_pub_bytes, username, salt = _get_password_data(pid)
     except: return None
 
     if not auth_user(username, password): return None
-    
-    priv_bytes = _derive_key(password, salt)
-    priv = X25519PrivateKey.from_private_bytes(priv_bytes)
+
     eph_pub = X25519PublicKey.from_public_bytes(eph_pub_bytes)
 
+    priv_bytes = _derive_key(password, salt)
+    password = None # wiping from memory as soon as not needed
+    priv = X25519PrivateKey.from_private_bytes(priv_bytes)
+    priv_bytes = None # wiping from memory as soon as not needed
+
     shared = priv.exchange(eph_pub)
+    priv = None # wiping from memory as soon as not needed
+
     key = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b"x25519-ecies").derive(shared)
 
     aead = ChaCha20Poly1305(key)
@@ -184,6 +189,13 @@ def decrypt_password(pid: int, password: str) -> bytes | None:
     try:
         return aead.decrypt(nonce, ciphertext, aad)
     except InvalidTag:
+        return None
+
+def get_password_plaintext(pid: int, password: str) -> str | None:
+    try:
+        plaintext = _decrypt_password(pid, password).decode()
+        return plaintext
+    except UnicodeDecodeError as e:
         return None
 
 def add_password(uid: int, label: str, login: str, password: str) -> bool:
@@ -223,20 +235,16 @@ def delete_password(pid: int, password: str) -> bool:
         return False
 
 def update_password(pid: int, password: str, new_password: str) -> bool:
-    label, login, _, _, _, username, _ = _get_password(pid)
+    label, login, _, _, _, username, _ = _get_password_data(pid)
     uid = auth_user(username, password)
     if not uid: return False
     try:
+        pub = _get_user_pub(uid)
+        ct, nonce, eph_pub = _encrypt_password(pub, new_password.encode(), label, login)
+
         with _get_db_connection() as db:
             cursor = db.cursor()
-            cursor.execute("DELETE FROM passwords WHERE pid=? AND uid=?", (pid, uid))
-
-            pub = _get_user_pub(uid)
-            ct, nonce, eph_pub = _encrypt_password(pub, new_password.encode(), label, login)
-            cursor.execute(
-                "INSERT INTO passwords (uid, label, login, password, nonce, eph_pub) VALUES (?, ?, ?, ?, ?, ?)",
-                (uid, label, login, ct, nonce, eph_pub)
-            )
+            cursor.execute("UPDATE passwords SET password = ?, nonce = ?, eph_pub = ? WHERE pid = ? AND uid = ?", (ct, nonce, eph_pub, pid, uid))
             db.commit()
         return True
     except: return False
