@@ -2,7 +2,7 @@ import os
 import sqlite3
 import getpass
 import pyperclip
-from typing import Tuple, List
+from typing import Tuple
 import PassManLib as passman
 
 def clear():
@@ -214,10 +214,10 @@ def registrationMenu():
     print("\nREGISTER\n")
     username = promptUsername()
     password1 = promptPassword()
-    password2 = getpass.getpass("Confirm password: ")
+    password2 = promptPassword("Confirm password: ")
     if password1 == password2:
-        passman.create_user(username=username, password=password1)
-        print(f"\nRegistration successful!")
+        if passman.create_user(username=username, password=password1): print(f"\nRegistration successful!")
+        else: printError("Registration failed!")
     else: printError("Passwords don't match!")
     pressEnterToContinue()
 
