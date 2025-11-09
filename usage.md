@@ -1,18 +1,27 @@
-# 1. Create a virtual environment
-python3 -m venv venv-passman
+# USAGE
 
-# 2. Activate the virtual environment
-source venv-passman/bin/activate    # Linux/macOS
-.\venv-passman\Scripts\Activate.ps1 # Windows
+### 1. Create a virtual environment
 
-# 3. Upgrade pip inside the venv
-pip install --upgrade pip
+**`python3 -m venv venv-passman`**
 
-# 4. Install dependencies from requirements.txt
-pip install -r requirements.txt
+### 2. Activate the virtual environment
 
-# 5. Run PassMan
-python ./PassManCLI.py
+Linux/macOS: **`source venv-passman/bin/activate`**
 
-# 6. Deactivate the virtual environment
-deactivate
+Windows: **`.\venv-passman\Scripts\Activate.ps1`**
+
+### 3. Upgrade pip inside the venv
+
+**`pip install --upgrade pip`**
+
+### 4. Install dependencies from requirements.txt
+
+**`pip install -r requirements.txt`**
+
+### 5. Run PassMan
+
+**`python ./PassManCLI.py`**
+
+### 6. Deactivate the virtual environment
+
+**`deactivate`**
