@@ -10,7 +10,7 @@
 - SQLite storage
 - Optimal for local or self-hosted use
 
-## Disclaimer
+## Warning
 
 **NB! PassManPy does not enforce minimum password strength requirements.**
 
