@@ -2,7 +2,23 @@
 
 ## About
 
-PassManPy is a "light" Password Manager written in Python, which supports both CLI and Web interfaces. Multiple users are supported. PassMan encrypts passwords using public key cryptography (X25519) and stores them in an SQLite database. Intended for use in local or self-hosted environment.
+PassManPy is a "light" Password Manager written in Python, which supports both CLI and Web interfaces. Multiple users are supported. PassManPy encrypts passwords using public key cryptography (X25519) and stores them in an SQLite database. Intended for use in local or self-hosted environment.
+
+## Features
+
+- CLI and Web (WIP) interfaces
+- Multi-user support
+- X25519 encryption
+  - Private key for decryption is NOT saved anywhere and is derived from master password, which has to be re-entered upon every decryption attempt.
+  - Public key for encryption allows adding passwords without re-entering master password.
+- SQLite storage
+- Optimal for local or self-hosted use
+
+## Disclaimer
+
+**NB! PassManPy does not enforce minimum password strength requirements.**
+
+If an attacker gains access to the vault file, accounts with weak master passwords can be easily brute-forced. Use a weak master password at your own risk.
 
 ## Usage
 
@@ -24,7 +40,7 @@ Windows: **`.\venv-passman\Scripts\Activate.ps1`**
 
 **`pip install -r requirements.txt`**
 
-### 5. Run PassMan
+### 5. Run PassManPy
 
 **`python ./PassManCLI.py`**
 
