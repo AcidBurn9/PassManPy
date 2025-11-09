@@ -10,7 +10,6 @@
 - SQLite storage
 - Optimal for local or self-hosted use
 
-
 \* - Web interface is WIP.
 
 ## Warning
