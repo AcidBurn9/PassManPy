@@ -188,13 +188,14 @@ def _decrypt_password(pid: int, password: str) -> bytes | None:
     aad = (label + "\n" + login).encode()
     try:
         return aead.decrypt(nonce, ciphertext, aad)
-    except InvalidTag:
-        return None
+    except InvalidTag: return None
+    except TypeError: return None
 
 def get_password_plaintext(pid: int, password: str) -> str | None:
     try:
-        plaintext = _decrypt_password(pid, password).decode()
-        return plaintext
+        plaintext = _decrypt_password(pid, password)
+        if plaintext is None: return None
+        return plaintext.decode()
     except UnicodeDecodeError as e:
         return None
 

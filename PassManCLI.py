@@ -59,6 +59,10 @@ def copyPassword(pid):
     password = promptPassword("Master password: ")
     plaintext = passman.get_password_plaintext(pid=pid, password=password)
     password = None # wiping from memory as soon as not needed
+    if plaintext is None:
+        printError("Could not retrieve the password")
+        pressEnterToContinue()
+        return
 
     printHeader()
     pyperclip.copy(plaintext)
@@ -70,6 +74,10 @@ def showPassword(pid, label, login):
     password = promptPassword("Master password: ")
     plaintext = passman.get_password_plaintext(pid=pid, password=password)
     password = None # wiping from memory as soon as not needed
+    if plaintext is None:
+        printError("Could not retrieve the password")
+        pressEnterToContinue()
+        return
 
     padding = ""
     for i in range(0, len(plaintext)): padding = padding + "="
