@@ -249,9 +249,8 @@ def main():
         mainMenu()
     except KeyboardInterrupt: kys()
     except EOFError: kys()
-    except sqlite3.OperationalError as e:
-        passman.logging.error(f"Database connection failure ({e})")
-        pressEnterToContinue()
+    except Exception as e:
+        passman.logging.error(f"CLI: Unexpected error! ({e})")
         kys(1)
 
 if __name__ == "__main__":
