@@ -36,7 +36,7 @@ Windows: **`.\venv-passman\Scripts\Activate.ps1`**
 
 ### 4. Install dependencies from requirements.txt
 
-**`pip install -r requirements.txt`**
+**`pip install -r requirements.txt --upgrade`**
 
 ### 5. Run PassManPy
 
