@@ -8,22 +8,23 @@ import PassManLib as passman
 def clear():
     os.system("cls" if os.name == "nt" else "clear")
 
-def printHeader():
+def printHeader(str = ""):
     clear()
-    print("=== PassMan CLI ===")
+    print(f"=== PassMan CLI ===\n")
+    if str != "": print(f"{str}\n")
 
 def pressEnterToContinue():
     input("\nPress ENTER to continue")
 
 def kys(code=0):
     printHeader()
-    print("\nExiting!")
+    print("Exiting!")
     pressEnterToContinue()
     clear()
     exit(code)
 
 def printError(error):
-    print(f"ERROR: {error}")
+    print(f"\nERROR: {error}")
 
 def invalidOption(option):
     printError(f"[{option}] is not a valid option!")
@@ -59,7 +60,7 @@ def promptValidOption(options) -> int | None:
 # Password menu options
 def copyPassword(pid):
     password = promptPassword("Master password: ")
-    plaintext = passman.get_password_plaintext(pid=pid, password=password)
+    plaintext = passman.decrypt_password(pid=pid, password=password)
     password = None # wiping from memory as soon as not needed
     if plaintext is None:
         printError("Could not retrieve the password")
@@ -69,12 +70,12 @@ def copyPassword(pid):
     printHeader()
     pyperclip.copy(plaintext)
     plaintext = None # wiping from memory as soon as not needed
-    print("\nCopied to the clipboard!")
+    print("Copied to the clipboard!")
     pressEnterToContinue()
 
 def showPassword(pid, label, login):
     password = promptPassword("Master password: ")
-    plaintext = passman.get_password_plaintext(pid=pid, password=password)
+    plaintext = passman.decrypt_password(pid=pid, password=password)
     password = None # wiping from memory as soon as not needed
     if plaintext is None:
         printError("Could not retrieve the password")
@@ -84,8 +85,7 @@ def showPassword(pid, label, login):
     padding = ""
     for i in range(0, len(plaintext)): padding = padding + "="
 
-    printHeader()
-    print(f"\f[{label}] {login}")
+    printHeader(f"[{label}] {login}")
     print(f"{padding}\n{plaintext}\n{padding}")
     pressEnterToContinue()
     clear()
@@ -93,8 +93,7 @@ def showPassword(pid, label, login):
 def updatePassword(pid, label, login):
     password = promptPassword("Master password: ")
 
-    printHeader()
-    print(f"\f[{label}] {login}")
+    printHeader(f"[{label}] {login}")
 
     newPassword = promptPassword("New password: ")
     if passman.update_password(pid=pid, password=password, new_password=newPassword): print("\nSuccess!")
@@ -123,7 +122,7 @@ def passwordMenu(pid, label, login):
     ]
     while True:
         printHeader()
-        print(f"\f[{label}] {login}\n")
+        print(f"[{label}] {login}\n")
         option = promptValidOption(passwordOptions)
         match option:
             case 1: copyPassword(pid)
@@ -138,21 +137,19 @@ def passwordMenu(pid, label, login):
 
 # User menu options
 def addPassword(uid: int):
-    printHeader()
-    print("\nAdd password\n")
+    printHeader("Add password")
     label = input("Label: ")
     login = input("Login: ")
     password = promptPassword()
 
     if passman.add_password(uid=uid, label=label, login=login, password=password): print("\nSuccess!")
-    else: print("Failed to add password.")
+    else: printError("Failed to add password!")
 
     pressEnterToContinue()
 
 def showPasswords(uid: int, filter=""):
     printHeader()
-    if filter!="": print(f"\nSearch: {filter}")
-    else: print("")
+    if filter!="": print(f"Search: {filter}")
     entries = passman.get_passwords(uid=uid)
 
     if not entries:
@@ -184,13 +181,12 @@ def showPasswords(uid: int, filter=""):
 
 def searchPasswords(uid: int):
     printHeader()
-    filter = input("\nSearch passwords: ")
+    filter = input("Search passwords: ")
     showPasswords(uid, filter)
 
 # Main menu options
 def loginMenu() -> Tuple[str, str] | Tuple[str, None]:
-    printHeader()
-    print("\nLOGIN\n")
+    printHeader("LOGIN")
     username = promptUsername()
     password = promptPassword()
     return username, passman.auth_user(username=username, password=password)
@@ -208,8 +204,7 @@ def userMenu():
         "List all passwords"
     ]
     while True:
-        printHeader()
-        print(f"\nWelcome, {username}!\n")
+        printHeader(f"Welcome, {username}!")
         option = promptValidOption(userMenuOptions)
         match option:
             case 1: addPassword(uid)
@@ -220,14 +215,16 @@ def userMenu():
             case _: invalidOption(option)
 
 def registrationMenu():
-    printHeader()
-    print("\nREGISTER\n")
+    printHeader("REGISTER")
     username = promptUsername()
     password1 = promptPassword()
     password2 = promptPassword("Confirm password: ")
     if password1 == password2:
-        if passman.create_user(username=username, password=password1): print(f"\nRegistration successful!")
-        else: printError("Registration failed!")
+        status = passman.create_user(username=username, password=password1)
+        match status:
+            case passman.Reg_Status.FAIL: printError("Registration failed!")
+            case passman.Reg_Status.TAKEN: printError("Username is taken!")
+            case passman.Reg_Status.SUCCESS: print("\nRegistration successful!")
     else: printError("Passwords don't match!")
     pressEnterToContinue()
 
@@ -253,8 +250,9 @@ def main():
         mainMenu()
     except KeyboardInterrupt: kys()
     except EOFError: kys()
-    except sqlite3.OperationalError:
-        printError("Database connection failure")
+    except sqlite3.OperationalError as e:
+        passman.logging.error(f"Database connection failure ({e})")
+        pressEnterToContinue()
         kys(1)
 
 if __name__ == "__main__":
