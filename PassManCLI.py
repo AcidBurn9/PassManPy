@@ -19,6 +19,7 @@ def pressEnterToContinue():
 def kys(code=0):
     printHeader()
     print("Exiting!")
+    passman.logging.info(f"========== Exiting with code {code} ==========")
     pressEnterToContinue()
     clear()
     exit(code)
@@ -245,6 +246,7 @@ def mainMenu():
 
 def main():
     try:
+        passman.logging.info("Starting CLI app")
         passman.init_db()
         mainMenu()
     except KeyboardInterrupt: kys()
