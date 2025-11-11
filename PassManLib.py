@@ -1,5 +1,7 @@
+import os
 import sqlite3
 import secrets
+import logging
 from typing import Tuple, List
 from argon2 import PasswordHasher
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
@@ -10,6 +12,17 @@ from cryptography.hazmat.primitives import hashes
 
 from argon2.exceptions import VerifyMismatchError
 from cryptography.exceptions import InvalidTag
+
+# Logging
+LOG_PATH = "PassManPy.log"
+logging.basicConfig(
+    filename=LOG_PATH,
+    filemode="a",
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.INFO
+)
+logging.info("Starting PassManPy")
+if os.path.exists(LOG_PATH): os.chmod(LOG_PATH, 0o600)
 
 # Database
 DB_PATH = "vault.db"
@@ -40,6 +53,7 @@ def _get_db_connection() -> sqlite3.Connection:
     return db
 
 def init_db():
+    logging.info(f"Initialising the database {DB_PATH}")
     with _get_db_connection() as db:
         cursor = db.cursor()
 
@@ -76,6 +90,7 @@ def _hash_pass(password: str) -> bytes:
 
 # Users
 def create_user(username: str, password: str) -> bool:
+    logging.debug(f"New user creation attempt: {username}")
     try:
         salt = secrets.token_bytes(16)
         priv_bytes = _derive_key(password, salt)
@@ -90,10 +105,11 @@ def create_user(username: str, password: str) -> bool:
                 (username, _hash_pass(password), pub.public_bytes_raw(), salt),
             )
             db.commit()
-
+            uid = cursor.lastrowid
+            logging.info(f"New user created: uid={uid}")
         return True
     except Exception as e:
-        print(f"Failed to create user: {e}")
+        logging.warning(f"Failed to create user: {username} | {e}")
         return False
 
 def auth_user(username: str, password: str) -> int | None:
@@ -102,7 +118,9 @@ def auth_user(username: str, password: str) -> int | None:
         cursor.execute("SELECT uid, password_hash FROM users WHERE username=?", (username,))
         row = cursor.fetchone()
 
-    if not row: return None
+    if not row:
+        logging.warning(f"Authentication attempt for non-existing user: {username}")
+        return None
     uid, passhash = row
 
     ph = PasswordHasher(
@@ -115,7 +133,12 @@ def auth_user(username: str, password: str) -> int | None:
     try:
         ph.verify(passhash, password)
         return uid
-    except VerifyMismatchError: return None
+    except VerifyMismatchError: 
+        logging.warning(f"Failed authentication attempt for user: {username}")
+        return None
+    except Exception as e:
+        logging.error(f"Failed authentication attempt for user: {username} | {e}")
+        return None
 
 def _get_user_pub(uid: int) -> X25519PublicKey:
     with _get_db_connection() as db:
@@ -123,7 +146,9 @@ def _get_user_pub(uid: int) -> X25519PublicKey:
         cursor.execute("SELECT pubkey FROM users WHERE uid=?", (uid,))
         row = cursor.fetchone()
 
-    if not row: raise ValueError(f"User with uid {uid} not found")
+    if not row: 
+        logging.warning(f"Failed to retrieve pub for missing uid: {uid}")
+        raise ValueError(f"Failed to retrieve pub for missing uid: {uid}")
 
     pub_bytes = row[0]
     pub = X25519PublicKey.from_public_bytes(pub_bytes)
@@ -159,16 +184,22 @@ def _get_password_data(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, by
         """, (pid,))
         row = cursor.fetchone()
 
-    if not row: raise ValueError(f"Password entry with pid {pid} not found")
+    if not row:
+        logging.warning(f"Failed to retrieve entry for missing pid: {pid}")
+        raise ValueError(f"Failed to retrieve entry for missing pid: {pid}")
 
     label, login, ciphertext, nonce, eph_pub_bytes, username, salt = row
 
     return label, login, ciphertext, nonce, eph_pub_bytes, username, salt
 
 def _decrypt_password(pid: int, password: str) -> bytes | None:
+    logging.debug(f"Password decryption attempt for pid: {pid}")
     try:
         label, login, ciphertext, nonce, eph_pub_bytes, username, salt = _get_password_data(pid)
-    except: return None
+    except ValueError: return None
+    except Exception as e:
+        logging.warning(f"Failed to retrieve entry for missing pid: {pid} | {e}")
+        return None
 
     if not auth_user(username, password): return None
 
@@ -187,9 +218,15 @@ def _decrypt_password(pid: int, password: str) -> bytes | None:
     aead = ChaCha20Poly1305(key)
     aad = (label + "\n" + login).encode()
     try:
-        return aead.decrypt(nonce, ciphertext, aad)
-    except InvalidTag: return None
-    except TypeError: return None
+        decrypted = aead.decrypt(nonce, ciphertext, aad)
+        logging.info(f"Successfully decrypted pid: {pid}")
+        return decrypted
+    except (InvalidTag, TypeError): 
+        logging.warning(f"Failed decryption for pid: {pid}")
+        return None
+    except Exception as e:
+        logging.error(f"Failed decryption for pid: {pid} | {e}")
+        return None
 
 def get_password_plaintext(pid: int, password: str) -> str | None:
     try:
@@ -197,6 +234,7 @@ def get_password_plaintext(pid: int, password: str) -> str | None:
         if plaintext is None: return None
         return plaintext.decode()
     except UnicodeDecodeError as e:
+        logging.warning(f"Unicode decode error for pid: {pid}")
         return None
 
 def add_password(uid: int, label: str, login: str, password: str) -> bool:
@@ -210,35 +248,47 @@ def add_password(uid: int, label: str, login: str, password: str) -> bool:
                 (uid, label, login, ct, nonce, eph_pub)
             )
             db.commit()
+            pid = cursor.lastrowid
+            logging.info(f"New password added: uid={uid}, pid={pid}")
         return True
     except Exception as e:
-        print(f"Failed to add password: {e}")
+        logging.warning(f"Failed to add password for uid: {uid} | {e}")
         return False
 
 def delete_password(pid: int, password: str) -> bool:
+    logging.debug(f"Password DELETE attempt for pid: {pid}")
     with _get_db_connection() as db:
         cursor = db.cursor()
         cursor.execute("SELECT u.username FROM passwords AS p JOIN users AS u ON p.uid = u.uid WHERE p.pid = ?", (pid,))
         row = cursor.fetchone()
-    if not row: return False
+    if not row: 
+        logging.warning(f"DELETE failed for non-exisiting pid: {pid}")
+        return False
+    
     username = row[0]
     uid = auth_user(username, password)
-    if not uid: return False
+    if not uid: 
+        logging.warning(f"DELETE failed for pid: {pid}")
+        return False
 
     try:
         with _get_db_connection() as db:
             cursor = db.cursor()
             cursor.execute("DELETE FROM passwords WHERE pid=? AND uid=? ", (pid, uid))
             db.commit()
+        logging.info(f"Successful DELETE for pid: {pid}")
         return True
     except Exception as e:
-        print(f"Failed to delete password: {e}")
+        logging.warning(f"DELETE failed for pid: {pid} | {e}")
         return False
 
 def update_password(pid: int, password: str, new_password: str) -> bool:
+    logging.debug(f"Password UPDATE attempt for pid: {pid}")
     label, login, _, _, _, username, _ = _get_password_data(pid)
     uid = auth_user(username, password)
-    if not uid: return False
+    if not uid:
+        logging.warning(f"UPDATE failed for pid: {pid}")
+        return False
     try:
         pub = _get_user_pub(uid)
         ct, nonce, eph_pub = _encrypt_password(pub, new_password.encode(), label, login)
@@ -247,10 +297,14 @@ def update_password(pid: int, password: str, new_password: str) -> bool:
             cursor = db.cursor()
             cursor.execute("UPDATE passwords SET password = ?, nonce = ?, eph_pub = ? WHERE pid = ? AND uid = ?", (ct, nonce, eph_pub, pid, uid))
             db.commit()
+        logging.info(f"Successful UPDATE for pid: {pid}")
         return True
-    except: return False
+    except Exception as e:
+        logging.error(f"UPDATE failed for pid: {pid} | {e}") 
+        return False
 
 def get_passwords(uid: int) -> List[Tuple[int, str, str]]:
+    logging.info(f"Fetching passwords for uid: {uid}")
     with _get_db_connection() as db:
         cursor = db.cursor()
         cursor.execute("SELECT pid, label, login FROM passwords WHERE uid=?", (uid,))
