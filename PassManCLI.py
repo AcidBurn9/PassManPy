@@ -121,8 +121,7 @@ def passwordMenu(pid, label, login):
         "Delete password"
     ]
     while True:
-        printHeader()
-        print(f"[{label}] {login}\n")
+        printHeader(f"[{label}] {login}")
         option = promptValidOption(passwordOptions)
         match option:
             case 1: copyPassword(pid)
