@@ -12,13 +12,15 @@ def printHeader():
     clear()
     print("=== PassMan CLI ===")
 
+def pressEnterToContinue():
+    input("\nPress ENTER to continue")
+
 def kys(code=0):
     printHeader()
     print("\nExiting!")
+    pressEnterToContinue()
+    clear()
     exit(code)
-
-def pressEnterToContinue():
-    input("\nPress ENTER to continue")
 
 def printError(error):
     print(f"ERROR: {error}")
