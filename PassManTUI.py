@@ -19,7 +19,8 @@ def kys(code=0):
     printHeader()
     print("Exiting!")
     passman.logging.info(f"========== Exiting with code {code} ==========")
-    pressEnterToContinue()
+    try: pressEnterToContinue()
+    except: pass # In case of an interupt during "Press Enter to continue"
     clear()
     exit(code)
 
@@ -58,10 +59,10 @@ def promptValidOption(options) -> int | None:
         return None
 
 # Password menu options
-def copyPassword(pid):
-    password = promptPassword("Master password: ")
-    plaintext = passman.decrypt_password(pid=pid, password=password)
-    password = None # wiping from memory as soon as not needed
+def copyPassword(pid: int):
+    masterpass = promptPassword("Master password: ")
+    plaintext = passman.decrypt_password(pid=pid, masterpass=masterpass)
+    masterpass = None # wiping from memory as soon as not needed
     if plaintext is None:
         printError("Could not retrieve the password")
         pressEnterToContinue()
@@ -73,10 +74,10 @@ def copyPassword(pid):
     print("Copied to the clipboard!")
     pressEnterToContinue()
 
-def showPassword(pid, label, login):
-    password = promptPassword("Master password: ")
-    plaintext = passman.decrypt_password(pid=pid, password=password)
-    password = None # wiping from memory as soon as not needed
+def showPassword(pid: int, label: str, login: str):
+    masterpass = promptPassword("Master password: ")
+    plaintext = passman.decrypt_password(pid=pid, masterpass=masterpass)
+    masterpass = None # wiping from memory as soon as not needed
     if plaintext is None:
         printError("Could not retrieve the password")
         pressEnterToContinue()
@@ -90,30 +91,32 @@ def showPassword(pid, label, login):
     pressEnterToContinue()
     clear()
 
-def updatePassword(pid, label, login):
-    password = promptPassword("Master password: ")
+def updatePassword(pid: int, label: str, login: str):
+    masterpass = promptPassword("Master password: ")
 
     printHeader(f"[{label}] {login}")
 
     newPassword = promptPassword("New password: ")
-    if passman.update_password(pid=pid, password=password, new_password=newPassword): print("\nSuccess!")
+    if passman.update_password(pid=pid, masterpass=masterpass, new_password=newPassword): print("\nSuccess!")
     else: printError("Failed to update the password!")
-    password = None # wiping from memory as soon as not needed
+    masterpass = None # wiping from memory as soon as not needed
     pressEnterToContinue()
     clear()
 
-def deletePassword(pid) -> bool:
-    password = promptPassword("Master password: ")
-    if passman.delete_password(pid=pid, password=password):
+def deletePassword(pid: int) -> bool:
+    masterpass = promptPassword("Master password: ")
+    success = passman.delete_password(pid=pid, masterpass=masterpass)
+    masterpass = None # wiping from memory as soon as not needed
+    if success:
         print("\nSuccess!")
         pressEnterToContinue()
-        return True
+        return True # Caller function needs to know if password no longer exists to exit the page for that password
     else:
         printError("Failed to delete the password!")
         pressEnterToContinue()
         return False
 
-def passwordMenu(pid, label, login):
+def passwordMenu(pid: int, label: str, login: str):
     passwordOptions = [
         "Copy password",
         "Show password",
@@ -146,7 +149,7 @@ def addPassword(uid: int):
 
     pressEnterToContinue()
 
-def showPasswords(uid: int, search_query=""):
+def listPasswords(uid: int, search_query=""):
     printHeader()
     if search_query != "": print(f"Search: '{search_query}'")
     entries = passman.search_passwords(uid=uid, search_query=search_query)
@@ -156,25 +159,17 @@ def showPasswords(uid: int, search_query=""):
         pressEnterToContinue()
         return
 
-    pids = []
-    labels = []
-    logins = []
-    options = []
-    for pid, label, login in entries:
-        pids.append(pid)
-        labels.append(label)
-        logins.append(login)
-        options.append(f"[{label}] {login}")
+    options = [f"[{label}] {login}" for _, label, login in entries]
 
     i = promptValidOption(options)
     if i == 0 or i is None: return
-    i -= 1
-    passwordMenu(pids[i], labels[i], logins[i])
+    pid, label, login = entries[i - 1]
+    passwordMenu(pid, label, login)
 
 def searchPasswords(uid: int):
     printHeader()
     search_query = input("Search passwords: ")
-    showPasswords(uid, search_query)
+    listPasswords(uid, search_query)
 
 # Main menu options
 def loginMenu() -> Tuple[str, str] | Tuple[str, None]:
@@ -201,7 +196,7 @@ def userMenu():
         match option:
             case 1: addPassword(uid)
             case 2: searchPasswords(uid)
-            case 3: showPasswords(uid)
+            case 3: listPasswords(uid)
             case 0: break
             case None: continue
             case _: invalidOption(option)

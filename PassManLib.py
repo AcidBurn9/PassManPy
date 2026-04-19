@@ -96,6 +96,7 @@ class Reg_Status(Enum):
     FAIL = 0
     TAKEN = 1
     SUCCESS = 2
+
 def create_user(username: str, password: str) -> Reg_Status:
     logging.debug(f"NEW_USER attempt for username={username}")
     salt = secrets.token_bytes(16)
@@ -213,7 +214,7 @@ def _get_password_data(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, by
         logging.error(f"Failed GET for pid={pid}! ({e})")
         return None
 
-def decrypt_password(pid: int, password: str) -> str | None:
+def decrypt_password(pid: int, masterpass: str) -> str | None:
     logging.debug(f"Password DECRYPT attempt for pid={pid}")
     password_data = _get_password_data(pid)
     if password_data is None:
@@ -221,15 +222,15 @@ def decrypt_password(pid: int, password: str) -> str | None:
         return None
     label, login, ciphertext, nonce, eph_pub_bytes, username, salt = password_data
 
-    uid = auth_user(username, password)
+    uid = auth_user(username, masterpass)
     if not uid:
         logging.warning(f"Failed DECRYPT for pid={pid} (bad auth)")
         return None
 
     eph_pub = X25519PublicKey.from_public_bytes(eph_pub_bytes)
 
-    priv_bytes = _derive_key(password, salt)
-    password = None # wiping from memory as soon as not needed
+    priv_bytes = _derive_key(masterpass, salt)
+    masterpass = None # wiping from memory as soon as not needed
     priv = X25519PrivateKey.from_private_bytes(priv_bytes)
     priv_bytes = None # wiping from memory as soon as not needed
 
@@ -276,7 +277,7 @@ def add_password(uid: int, label: str, login: str, password: str) -> bool:
         logging.error(f"Failed ADD by uid={uid}! ({e})")
         return False
 
-def delete_password(pid: int, password: str) -> bool:
+def delete_password(pid: int, masterpass: str) -> bool:
     logging.debug(f"Password DELETE attempt for pid={pid}")
     try:
         with _get_db_connection() as db:
@@ -292,7 +293,8 @@ def delete_password(pid: int, password: str) -> bool:
         return False
 
     username = row[0]
-    uid = auth_user(username, password)
+    uid = auth_user(username, masterpass)
+    masterpass = None # wiping from memory as soon as not needed
     if not uid:
         logging.warning(f"Failed DELETE of pid={pid} (bad auth)")
         return False
@@ -308,7 +310,7 @@ def delete_password(pid: int, password: str) -> bool:
         logging.error(f"Failed DELETE of pid={pid} by uid={uid}! ({e})")
         return False
 
-def update_password(pid: int, password: str, new_password: str) -> bool:
+def update_password(pid: int, masterpass: str, new_password: str) -> bool:
     logging.debug(f"Password UPDATE attempt for pid={pid}")
     password_data = _get_password_data(pid)
     if password_data is None:
@@ -316,7 +318,8 @@ def update_password(pid: int, password: str, new_password: str) -> bool:
         return False
     label, login, _, _, _, username, _ = password_data
 
-    uid = auth_user(username, password)
+    uid = auth_user(username, masterpass)
+    masterpass = None # wiping from memory as soon as not needed
     if not uid:
         logging.warning(f"Failed UPDATE of pid={pid} (bad auth)")
         return False
@@ -348,8 +351,10 @@ GET_PASSWORDS_QUERY_WITH_FILTER = """
     )
 """
 def search_passwords(uid: int, search_query: str = "") -> List[Tuple[int, str, str]]:
-    logging.info(f"Fetching passwords with uid={uid} and filter='{search_query}'")
-    results = []
+    msg = f"Fetching passwords with uid={uid}"
+    if search_query: msg += f" and filter='{search_query}'"
+    logging.info(msg)
+
     try:
         with _get_db_connection() as db:
             cursor = db.cursor()
@@ -358,11 +363,12 @@ def search_passwords(uid: int, search_query: str = "") -> List[Tuple[int, str, s
                 cursor.execute(GET_PASSWORDS_QUERY_WITH_FILTER, (uid, param, param))
             else:
                 cursor.execute(GET_PASSWORDS_QUERY, (uid,))
-            results = cursor.fetchall()
+            return cursor.fetchall()
     except Exception as e:
-        logging.error(f"Failed to fetch passwords with uid={uid} and filter='{search_query}'! ({e})")
-
-    return results
+        msg = f"Failed to fetch passwords with uid={uid}"
+        if search_query: msg += f" and filter='{search_query}'"
+        logging.error(f"{msg}! ({e})")
+        return []
 
 def _escape_like(s: str) -> str:
     return (
