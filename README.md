@@ -2,7 +2,7 @@
 
 ## Features
 
-- CLI and Web* interfaces
+- Terminal and Web* interfaces
 - Multi-user support
 - X25519 encryption
   - Private key for decryption is NOT saved anywhere and is derived from master password, which has to be re-entered upon every decryption attempt.
@@ -40,7 +40,7 @@ Windows: **`.\venv-passman\Scripts\Activate.ps1`**
 
 ### 5. Run PassManPy
 
-**`python ./PassManCLI.py`**
+**`python ./PassManTUI.py`**
 
 ### 6. Deactivate the virtual environment
 

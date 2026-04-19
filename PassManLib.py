@@ -337,7 +337,42 @@ def update_password(pid: int, password: str, new_password: str) -> bool:
         logging.error(f"Failed UPDATE of pid={pid} by uid={uid}! ({e})")
         return False
 
-def get_passwords(uid: int) -> List[Tuple[int, str, str]]:
+GET_PASSWORDS_QUERY = "SELECT pid, label, login FROM passwords WHERE uid=?"
+GET_PASSWORDS_QUERY_WITH_FILTER = """
+    SELECT pid, label, login
+    FROM passwords
+    WHERE uid=?
+    AND (
+        label LIKE ? ESCAPE '\\' COLLATE NOCASE
+        OR login LIKE ? ESCAPE '\\' COLLATE NOCASE
+    )
+"""
+def search_passwords(uid: int, search_query: str = "") -> List[Tuple[int, str, str]]:
+    logging.info(f"Fetching passwords with uid={uid} and filter='{search_query}'")
+    results = []
+    try:
+        with _get_db_connection() as db:
+            cursor = db.cursor()
+            if search_query:
+                param = f"%{_escape_like(search_query)}%"
+                cursor.execute(GET_PASSWORDS_QUERY_WITH_FILTER, (uid, param, param))
+            else:
+                cursor.execute(GET_PASSWORDS_QUERY, (uid,))
+            results = cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Failed to fetch passwords with uid={uid} and filter='{search_query}'! ({e})")
+
+    return results
+
+def _escape_like(s: str) -> str:
+    return (
+        s.replace("\\", "\\\\")
+         .replace("%", "\\%")
+         .replace("_", "\\_")
+    )
+
+# Depricated
+def _get_passwords(uid: int) -> List[Tuple[int, str, str]]:
     logging.info(f"Fetching passwords with uid={uid}")
     results = []
     try:

@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import getpass
 import pyperclip
 from typing import Tuple
@@ -10,7 +9,7 @@ def clear():
 
 def printHeader(str = ""):
     clear()
-    print(f"=== PassMan CLI ===\n")
+    print(f"=== PassMan TUI ===\n")
     if str != "": print(f"{str}\n")
 
 def pressEnterToContinue():
@@ -147,10 +146,10 @@ def addPassword(uid: int):
 
     pressEnterToContinue()
 
-def showPasswords(uid: int, filter=""):
+def showPasswords(uid: int, search_query=""):
     printHeader()
-    if filter!="": print(f"Search: {filter}")
-    entries = passman.get_passwords(uid=uid)
+    if search_query != "": print(f"Search: '{search_query}'")
+    entries = passman.search_passwords(uid=uid, search_query=search_query)
 
     if not entries:
         print("No passwords.")
@@ -162,27 +161,21 @@ def showPasswords(uid: int, filter=""):
     logins = []
     options = []
     for pid, label, login in entries:
-        if filter in label or filter in login:
-            pids.append(pid)
-            labels.append(label)
-            logins.append(login)
-            options.append(f"[{label}] {login}")
-
-    if not pids:
-        print("No passwords.")
-        pressEnterToContinue()
-        return
+        pids.append(pid)
+        labels.append(label)
+        logins.append(login)
+        options.append(f"[{label}] {login}")
 
     i = promptValidOption(options)
     if i == 0 or i is None: return
-    else: i = i - 1
+    i -= 1
     pid = pids[i]
     passwordMenu(pid, labels[i], logins[i])
 
 def searchPasswords(uid: int):
     printHeader()
-    filter = input("Search passwords: ")
-    showPasswords(uid, filter)
+    search_query = input("Search passwords: ")
+    showPasswords(uid, search_query)
 
 # Main menu options
 def loginMenu() -> Tuple[str, str] | Tuple[str, None]:
@@ -246,13 +239,13 @@ def mainMenu():
 
 def main():
     try:
-        passman.logging.info("Starting CLI app")
+        passman.logging.info("Starting TUI app")
         passman.init_db()
         mainMenu()
     except KeyboardInterrupt: kys()
     except EOFError: kys()
     except Exception as e:
-        passman.logging.error(f"CLI: Unexpected error! ({e})")
+        passman.logging.error(f"TUI: Unexpected error! ({e})")
         kys(1)
 
 if __name__ == "__main__":
