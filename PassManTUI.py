@@ -169,8 +169,7 @@ def showPasswords(uid: int, search_query=""):
     i = promptValidOption(options)
     if i == 0 or i is None: return
     i -= 1
-    pid = pids[i]
-    passwordMenu(pid, labels[i], logins[i])
+    passwordMenu(pids[i], labels[i], logins[i])
 
 def searchPasswords(uid: int):
     printHeader()
