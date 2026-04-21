@@ -232,8 +232,16 @@ def mainMenu():
             case _: invalidOption(option)
 
 def main():
+    LOG_PATH = "PassManTUI.log"
+    passman.logging.basicConfig(
+        filename=LOG_PATH,
+        filemode="a",
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        level=passman.logging.INFO
+    )
+    passman.logging.info("========== Starting PassManTUI ==========")
+    
     try:
-        passman.logging.info("Starting TUI app")
         passman.init_db()
         mainMenu()
     except KeyboardInterrupt: kys()

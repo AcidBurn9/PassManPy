@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PassMan Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Login</h1>
+<div class="flashed">
+{% with messages = get_flashed_messages(with_categories=True) %}
+  {% if messages %}
+    <ul>
+      {% for category, msg in messages %}
+        <li class="{{ category }}">{{ msg }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+</div>
+    <form action="" method="post"> 
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <input type="text" name="username" id="username" placeholder="Username" value="{{ username }}" required><br><br>
+        <input type="password" name="password" id="password" placeholder="Password" required><br><br>
+        <input type="submit" value="Login">
+    </form>
+    <br>
+    <button type="button" onclick="window.location.href='{{ url_for('registration_menu_page') }}'">Register</button>
+</body>
+</html>

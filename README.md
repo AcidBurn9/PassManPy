@@ -2,15 +2,13 @@
 
 ## Features
 
-- Terminal and Web* interfaces
+- Terminal and Web (Flask) interfaces
 - Multi-user support
 - X25519 encryption
   - Private key for decryption is NOT saved anywhere and is derived from master password, which has to be re-entered upon every decryption attempt.
   - Public key for encryption allows adding passwords without re-entering master password.
 - SQLite storage
 - Optimal for local or self-hosted use
-
-\* - Web interface is WIP.
 
 ## Warning
 

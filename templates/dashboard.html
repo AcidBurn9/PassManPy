@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PassMan Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<h1>Welcome, {{ username }}!</h1>
+<button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
+<div class="flashed">
+{% with messages = get_flashed_messages(with_categories=True) %}
+  {% if messages %}
+    <ul>
+      {% for category, msg in messages %}
+        <li class="{{ category }}">{{ msg }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+</div>
+
+<br><br>
+
+<button onclick="openAddModal()">Add Password</button>
+
+<br><br>
+
+<form method="GET">
+    <input type="text" name="search" value="{{ search_query }}" placeholder="Search passwords...">
+    <button type="submit">Search</button>
+</form>
+
+<br>
+
+<div class="container">
+{% if not entries %}
+    <p>No passwords found.</p>
+{% endif %}
+{% for pid, label, login in entries %}
+    <div class="entry">
+        <div class="entry-content">
+            <strong>{{ label }}</strong><br>
+            {{ login }}
+        </div>
+        <div class="entry-actions">
+            <button type="button" onclick="openDecryptModal({{ pid }})">Decrypt</button>
+            <button type="button" onclick="openUpdateModal({{ pid }})">Update</button>
+            <button type="button" onclick="openDeleteModal({{ pid }})">Delete</button>
+        </div>
+    </div>
+{% endfor %}
+</div>
+
+<!-- DECRYPT MODAL -->
+<div id="decrypt-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close" onclick="closeDecryptModal()">✕</span>
+
+        <h3>Decrypt Password</h3>
+
+        <form id="decrypt-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="pid" id="decrypt-pid">
+
+            <input type="password" name="masterpass" id="masterpass" placeholder="Master password" required>
+
+            <button type="submit">Decrypt</button>
+        </form>
+
+        <div id="decrypt-result" class="hidden">
+            <input type="password" id="decrypted-password" readonly>
+            
+            <button type="button" onclick="togglePassword()">👁</button>
+            <button type="button" onclick="copyPassword()">📋</button>
+        </div>
+    </div>
+</div>
+
+<!-- ADD MODAL -->
+<div id="add-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close" onclick="closeAddModal()">✕</span>
+
+        <h3>Add Password</h3>
+
+        <form id="add-form" action="{{ url_for('add_password_page') }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <input type="text" name="label" id="add-label" placeholder="Label" required>
+            <br><br>
+            <input type="text" name="login" id="add-login" placeholder="Login" required>
+            <br><br>
+            <input type="password" name="password" id="add-password" placeholder="Password" required>
+            <br><br>
+            <button type="submit">Add</button>
+        </form>
+    </div>
+</div>
+
+<!-- UPDATE MODAL -->
+<div id="update-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close" onclick="closeUpdateModal()">✕</span>
+        
+        <h3>Update Password</h3>
+        
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="pid" id="update-pid">
+            <input type="hidden" name="command" value="update_password">
+                  
+            <input type="password" name="new_password" placeholder="New password" required>
+            <br><br>
+            <input type="password" name="masterpass" placeholder="Master password" required>
+            <br><br>
+            <button type="submit">Update</button>
+        </form>
+    </div>
+</div>
+
+<!-- DELETE MODAL -->
+<div id="delete-modal" class="modal hidden">
+    <div class="modal-content">
+        <span class="close" onclick="closeDeleteModal()">✕</span>
+        
+        <h3>Delete Password</h3>
+        <p style="color:red;">This action cannot be undone!</p>
+        
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="pid" id="delete-pid">
+            <input type="hidden" name="command" value="delete_password">
+            
+            <input type="password" name="masterpass" placeholder="Master password" required>
+            
+            <button type="submit">Delete</button>
+        </form>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+<script>
+    const csrfToken = "{{ csrf_token() }}";
+</script>
+</body>
+</html>

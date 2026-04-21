@@ -1,6 +1,6 @@
 import sqlite3
-import secrets
 import logging
+from secrets import token_bytes
 from enum import Enum
 from typing import Tuple, List
 from argon2 import PasswordHasher
@@ -12,17 +12,6 @@ from cryptography.hazmat.primitives import hashes
 
 from argon2.exceptions import VerifyMismatchError
 from cryptography.exceptions import InvalidTag
-
-
-# Logging
-LOG_PATH = "PassManPy.log"
-logging.basicConfig(
-    filename=LOG_PATH,
-    filemode="a",
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    level=logging.INFO
-)
-logging.info("========== Starting PassManPy ==========")
 
 
 # Database
@@ -99,7 +88,7 @@ class Reg_Status(Enum):
 
 def create_user(username: str, password: str) -> Reg_Status:
     logging.debug(f"NEW_USER attempt for username={username}")
-    salt = secrets.token_bytes(16)
+    salt = token_bytes(16)
     priv_bytes = _derive_key(password, salt)
     priv = X25519PrivateKey.from_private_bytes(priv_bytes)
     pub = priv.public_key()
@@ -188,7 +177,7 @@ def _encrypt_password(pub: X25519PublicKey, plaintext: str, label: str, login: s
     key = hkdf.derive(shared)
 
     aead = ChaCha20Poly1305(key)
-    nonce = secrets.token_bytes(12)
+    nonce = token_bytes(12)
     aad = (label + "\n" + login)
     ciphertext = aead.encrypt(nonce, plaintext.encode(), aad.encode())
 
