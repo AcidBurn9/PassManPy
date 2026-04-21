@@ -38,7 +38,7 @@ Windows: **`.\venv-passman\Scripts\Activate.ps1`**
 
 ### 5. Run PassManPy
 
-**`python ./PassManTUI.py`**
+**`python ./PassManTUI.py`** or **`python ./PassManWeb.py`**
 
 ### 6. Deactivate the virtual environment
 
