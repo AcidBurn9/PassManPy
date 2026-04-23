@@ -1,5 +1,6 @@
 Flask
 Flask-Session
+Flask-Limiter
 Flask-WTF
 cryptography
 argon2-cffi
