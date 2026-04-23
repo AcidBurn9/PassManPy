@@ -203,6 +203,19 @@ def _get_password_data(pid: int) -> tuple[str, str, bytes, bytes, bytes, str, by
         logging.error(f"Failed GET for pid={pid}! ({e})")
         return None
 
+def get_password_owner(pid: int) -> int | None:
+    try:
+        with _get_db_connection() as db:
+            cursor = db.cursor()
+            cursor.execute("SELECT uid FROM passwords WHERE pid = ?", (pid,))
+            row = cursor.fetchone()
+        
+        return row[0] if row else None
+    
+    except Exception as e:
+        logging.error(f"Failed GET for pid={pid}! ({e})")
+        return None
+
 def decrypt_password(pid: int, masterpass: str) -> str | None:
     logging.debug(f"Password DECRYPT attempt for pid={pid}")
     password_data = _get_password_data(pid)

@@ -84,7 +84,7 @@
 
         <h3>Add Password</h3>
 
-        <form id="add-form" action="{{ url_for('add_password_page') }}" method="POST">
+        <form id="add-form" action="{{ url_for('add_password') }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
             <input type="text" name="label" id="add-label" placeholder="Label" required>
@@ -105,10 +105,9 @@
         
         <h3>Update Password</h3>
         
-        <form method="POST">
+        <form method="POST" action="{{ url_for('update_password') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="pid" id="update-pid">
-            <input type="hidden" name="command" value="update_password">
                   
             <input type="password" name="new_password" placeholder="New password" required>
             <br><br>
@@ -127,10 +126,9 @@
         <h3>Delete Password</h3>
         <p style="color:red;">This action cannot be undone!</p>
         
-        <form method="POST">
+        <form method="POST" action="{{ url_for('delete_password') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="pid" id="delete-pid">
-            <input type="hidden" name="command" value="delete_password">
             
             <input type="password" name="masterpass" placeholder="Master password" required>
             
