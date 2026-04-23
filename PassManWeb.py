@@ -22,6 +22,7 @@ localhost = True # True - server hosted only on 127.0.0.1, False - server is pub
 port = 5000
 MASTERPASS_RATE_LIMIT = "5 per 5 seconds"
 GLOBAL_RATE_LIMIT = "30 per 15 seconds"
+REGISTER_RATE_LIMIT = "1 per 10 seconds"
 
 # Flask init
 app = Flask(__name__)
@@ -115,6 +116,12 @@ class RateLimit():
         exempt_when=lambda: request.method == 'GET'
     )
     MASTERPASS_TARGET_ACCOUNT.shared = True # Why is this not in the constructor, flask-limiter devs?
+    
+    REGISTER_POST_IP = limiter.limit(
+        limit_value=REGISTER_RATE_LIMIT,
+        key_func=get_remote_address,
+        exempt_when=lambda: request.method == 'GET'
+    )
 
 
 # Auth
@@ -168,6 +175,7 @@ def default_route():
 
 @app.route('/register', methods=['GET', 'POST'])
 @RateLimit.GLOBAL_IP
+@RateLimit.REGISTER_POST_IP
 def register_page():
     if session.get('uid'): return redirect(url_for('dashboard_page'))
     username = password1 = password2 = ''
@@ -197,9 +205,9 @@ def register_page():
 
 
 @app.route('/login', methods=['GET', 'POST'])
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-@RateLimit.MASTERPASS_SENDER_IP
 @RateLimit.GLOBAL_IP
+@RateLimit.MASTERPASS_SENDER_IP
+@RateLimit.MASTERPASS_TARGET_ACCOUNT
 def login_page():
     if session.get('uid'): return redirect(url_for('dashboard_page'))
     
@@ -218,8 +226,8 @@ def login_page():
 
 
 @app.route('/logout')
-@login_required
 @RateLimit.GLOBAL_IP
+@login_required
 def logout():
     uid = session.get('uid', '')
     logging.info(f"Successful LOGOUT for uid={uid}")
@@ -229,8 +237,8 @@ def logout():
 
 
 @app.route('/dashboard', methods=['GET'])
-@login_required
 @RateLimit.GLOBAL_IP
+@login_required
 def dashboard_page():
     search_query = request.args.get('search', '')
     uid = session.get('uid')
@@ -239,8 +247,8 @@ def dashboard_page():
 
 
 @app.route('/add_password', methods=['POST'])
-@login_required
 @RateLimit.GLOBAL_IP
+@login_required
 def add_password():
     label = request.form.get('label')
     login = request.form.get('login')
@@ -254,9 +262,9 @@ def add_password():
 
 
 @app.route('/decrypt_password', methods=['POST'])
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-@login_required
 @RateLimit.MASTERPASS_SENDER_IP
+@login_required
+@RateLimit.MASTERPASS_TARGET_ACCOUNT
 def decrypt_password():
     data = request.get_json()
     pid = data.get('pid')
@@ -286,9 +294,9 @@ def decrypt_password():
 
 
 @app.route('/update_password', methods=['POST'])
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-@login_required
 @RateLimit.MASTERPASS_SENDER_IP
+@login_required
+@RateLimit.MASTERPASS_TARGET_ACCOUNT
 def update_password():
     pid = request.form.get('pid')
     
@@ -326,9 +334,9 @@ def update_password():
 
 
 @app.route('/delete_password', methods=['POST'])
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-@login_required
 @RateLimit.MASTERPASS_SENDER_IP
+@login_required
+@RateLimit.MASTERPASS_TARGET_ACCOUNT
 def delete_password():
     pid = request.form.get('pid')
     
