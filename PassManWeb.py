@@ -75,21 +75,13 @@ class Flash_Category:
 
 # Rate limits
 def get_ratelimit_target():
-    pid = request.form.get('pid') # Target pid for DELETE / UPDATE operations
-    if pid is None and request.is_json:
-        pid = request.get_json().get('pid') # Target pid for DECRYPT operation
-
-    if pid:
-        try:
-            uid = passman.get_password_owner(int(pid))
-            if uid:
-                return f"target_uid_{uid}"
-        except (ValueError, TypeError):
-            pass # Failed to identify target uid. Falling back to other means.
-
+    uid = session.get('uid') # Target uid for logged in operations
+    if uid:
+        return f"uid_{uid}"
+    
     username = request.form.get('username') # Target username for LOGIN operation
     if username:
-        return f"target_username_{username}"
+        return f"username_{username}"
 
     return get_remote_address() # Fallback to IP
 
