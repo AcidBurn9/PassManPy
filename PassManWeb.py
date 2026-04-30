@@ -6,86 +6,37 @@ from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect, CSRFError
 from secrets import token_urlsafe
 from datetime import timedelta
-import PassManLib as passman
+from PassManLib import PassMan, RegStatus
 import logging
 import os
 
 
-#----------
-#   INIT
-#----------
-
-
-# Config
-debug = False
-localhost = True # True - server hosted only on 127.0.0.1, False - server is publically accessible.
-port = 5000
-MASTERPASS_RATE_LIMIT = "5 per 5 seconds"
-GLOBAL_RATE_LIMIT = "30 per 15 seconds"
-REGISTER_RATE_LIMIT = "1 per 10 seconds"
-
-# Flask init
-app = Flask(__name__)
-key = os.environ.get("FLASK_SECRET_KEY") # Make sure to set this ENV variable before running the server.
-if not key:
-    #key = token_urlsafe(32) # Fallback to random key if ENV variable is not set. NOT RECOMMENDED! WILL CAUSE ISSUES!
-    raise RuntimeError("FLASK_SECRET_KEY env variable is not set!")
-app.secret_key = key
-app.config.update(
-    SESSION_TYPE="filesystem", # Crossplatform unlike "redis" which lacks proper Windows support
-    SESSION_PERMANENT=True,
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=2),
-    SESSION_COOKIE_HTTPONLY=True,
-    #SESSION_COOKIE_SECURE=True, # TLS is not set up yet.
-    SESSION_COOKIE_SAMESITE="Lax",
-)
-Session(app)
-csrf = CSRFProtect(app)
-
-
-# Rate limiter init
-limiter = Limiter(
-    key_func=get_remote_address,
-    app=app,
-    storage_uri="memory://",
-    strategy="fixed-window"
-)
-
-
-# Logging init
-LOG_PATH = "PassManWeb.log"
-logging.basicConfig(
-    filename=LOG_PATH,
-    filemode="a",
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    level=logging.INFO
-)
-
-
-#--------------------------
-#   HELPERS / DECORATORS
-#--------------------------
-
-
-class Flash_Category:
+class FlashCategory:
     SUCCESS = 'flash-success'
     INFO = 'flash-info'
     ERROR = 'flash-error'
 
 
-# Rate limits
-def get_ratelimit_target():
+def _get_ratelimit_target() -> str:
     uid = session.get('uid') # Target uid for logged in operations
     if uid:
         return f"uid_{uid}"
-    
     username = request.form.get('username') # Target username for LOGIN operation
     if username:
         return f"username_{username}"
-
     return get_remote_address() # Fallback to IP
 
 class RateLimit():
+    MASTERPASS_RATE_LIMIT = "5 per 5 seconds"
+    GLOBAL_RATE_LIMIT = "30 per 15 seconds"
+    REGISTER_RATE_LIMIT = "1 per 10 seconds"
+    
+    limiter = Limiter(
+        key_func=get_remote_address,
+        storage_uri="memory://",
+        strategy="fixed-window"
+    )
+    
     GLOBAL_IP = limiter.limit(
         limit_value=GLOBAL_RATE_LIMIT,
         scope='global',
@@ -104,7 +55,7 @@ class RateLimit():
     MASTERPASS_TARGET_ACCOUNT = limiter.limit(
         limit_value=MASTERPASS_RATE_LIMIT,
         scope='masterpass_target_account',
-        key_func=get_ratelimit_target,
+        key_func=_get_ratelimit_target,
         exempt_when=lambda: request.method == 'GET'
     )
     MASTERPASS_TARGET_ACCOUNT.shared = True # Why is this not in the constructor, flask-limiter devs?
@@ -117,10 +68,11 @@ class RateLimit():
 
 
 # Auth
-def login(uid: int, username: str):
+def set_session(uid: int, username: str):
     session['uid'] = uid
     session['username'] = username
     return redirect(url_for('dashboard_page'))
+
 
 def login_required(view):
     @wraps(view)
@@ -131,243 +83,281 @@ def login_required(view):
     return wrapped_view
 
 
-# Handlers
-@app.errorhandler(CSRFError)
-def handle_csrf_error(e):
-    return {"success": False, "error": "CSRF validation failed"}, 400
-
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    if request.is_json:
-        return {"success": False, "error": "Too many requests."}, 429
+def create_app(db_path: str = None) -> Flask:
+    app = Flask(__name__)
     
-    flash("Too many requests.", Flash_Category.ERROR)
+    key = os.environ.get("FLASK_SECRET_KEY") # Make sure to set this ENV variable before running the server.
+    if not key:
+        #key = token_urlsafe(32) # Fallback to random key if ENV variable is not set. NOT RECOMMENDED! WILL CAUSE ISSUES!
+        raise RuntimeError("FLASK_SECRET_KEY env variable is not set!")
+    app.secret_key = key
     
-    template_map = {
-        'login_page': 'login.html',
-        'register_page': 'register.html',
-        'dashboard_page': 'dashboard.html'
-    }
+    app.config.update(
+        SESSION_TYPE="filesystem", # Crossplatform unlike "redis" which lacks proper Windows support
+        SESSION_PERMANENT=True,
+        PERMANENT_SESSION_LIFETIME = timedelta(hours=2),
+        SESSION_COOKIE_HTTPONLY=True,
+        #SESSION_COOKIE_SECURE=True, # TLS is not set up yet.
+        SESSION_COOKIE_SAMESITE="Lax",
+    )
     
-    target_template = template_map.get(request.endpoint, 'login.html')
+    Session(app)
+    CSRFProtect(app)
+    RateLimit.limiter.init_app(app)
     
-    return render_template(target_template, error="Too many requests."), 429
-
-
-#-------------
-#   ROUTES
-#-------------
-
-
-@app.route('/')
-@RateLimit.GLOBAL_IP
-def default_route():
-    return redirect(url_for('login_page'))
-
-
-@app.route('/register', methods=['GET', 'POST'])
-@RateLimit.GLOBAL_IP
-@RateLimit.REGISTER_POST_IP
-def register_page():
-    if session.get('uid'): return redirect(url_for('dashboard_page'))
-    username = password1 = password2 = ''
+    passman = PassMan(db_path) if db_path else PassMan()
+    passman.init_db()
     
-    if request.method == 'POST':
-        username = request.form['username']
-        password1 = request.form['password1']
-        password2 = request.form['password2']
-        if password1 == password2:
-            status = passman.create_user(username, password1)
-            match status:
-                case passman.Reg_Status.FAIL:
-                    flash('Registration failed!', Flash_Category.ERROR)
-                case passman.Reg_Status.TAKEN:
-                    flash('Username is taken!', Flash_Category.INFO)
-                case passman.Reg_Status.SUCCESS:
-                    flash('Registration successful!', Flash_Category.SUCCESS)
-                    
-                    uid = passman.auth_user(username, password1)
-                    if uid: return login(uid, username)
-                    
-                    return redirect(url_for('login_page'))
-        else:
-            flash("Passwords don't match!", Flash_Category.ERROR)
-
-    return render_template('register.html', username=username, password1=password1, password2=password2)
-
-
-@app.route('/login', methods=['GET', 'POST'])
-@RateLimit.GLOBAL_IP
-@RateLimit.MASTERPASS_SENDER_IP
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-def login_page():
-    if session.get('uid'): return redirect(url_for('dashboard_page'))
     
-    username = ""
+    # Handlers
     
-    if request.method == 'POST':
-        username = request.form.get('username')
+    
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        return {"success": False, "error": "CSRF validation failed"}, 400
+
+    @app.errorhandler(429)
+    def ratelimit_handler(e):
+        if request.is_json:
+            return {"success": False, "error": "Too many requests."}, 429
+
+        flash("Too many requests.", FlashCategory.ERROR)
+
+        template_map = {
+            'login_page': 'login.html',
+            'register_page': 'register.html',
+            'dashboard_page': 'dashboard.html'
+        }
+
+        target_template = template_map.get(request.endpoint, 'login.html')
+
+        return render_template(target_template, error="Too many requests."), 429
+
+
+    # Routes
+    
+    
+    @app.route('/')
+    @RateLimit.GLOBAL_IP
+    def default_route():
+        return redirect(url_for('login_page'))
+
+
+    @app.route('/register', methods=['GET', 'POST'])
+    @RateLimit.GLOBAL_IP
+    @RateLimit.REGISTER_POST_IP
+    def register_page():
+        if session.get('uid'): return redirect(url_for('dashboard_page'))
+        username = password1 = password2 = ''
+
+        if request.method == 'POST':
+            username = request.form['username']
+            password1 = request.form['password1']
+            password2 = request.form['password2']
+            if password1 == password2:
+                status = passman.create_user(username, password1)
+                match status:
+                    case RegStatus.FAIL:
+                        flash('Registration failed!', FlashCategory.ERROR)
+                    case RegStatus.TAKEN:
+                        flash('Username is taken!', FlashCategory.INFO)
+                    case RegStatus.SUCCESS:
+                        flash('Registration successful!', FlashCategory.SUCCESS)
+
+                        uid = passman.auth_user(username, password1)
+                        if uid: return set_session(uid, username)
+
+                        return redirect(url_for('login_page'))
+            else:
+                flash("Passwords don't match!", FlashCategory.ERROR)
+
+        return render_template('register.html', username=username, password1=password1, password2=password2)
+
+
+    @app.route('/login', methods=['GET', 'POST'])
+    @RateLimit.GLOBAL_IP
+    @RateLimit.MASTERPASS_SENDER_IP
+    @RateLimit.MASTERPASS_TARGET_ACCOUNT
+    def login_page():
+        if session.get('uid'): return redirect(url_for('dashboard_page'))
+
+        username = ""
+
+        if request.method == 'POST':
+            username = request.form.get('username')
+            password = request.form.get('password')
+            uid = passman.auth_user(username, password)
+            if uid is None:
+                flash('Authentication failed!', FlashCategory.ERROR)
+            else:
+                return set_session(uid, username)
+
+        return render_template('login.html', username=username)
+
+
+    @app.route('/logout')
+    @RateLimit.GLOBAL_IP
+    @login_required
+    def logout():
+        uid = session.get('uid', '')
+        logging.info(f"Successful LOGOUT for uid={uid}")
+        session.clear()
+        flash('Logged out.', FlashCategory.INFO)
+        return redirect(url_for('login_page'))
+
+
+    @app.route('/dashboard', methods=['GET'])
+    @RateLimit.GLOBAL_IP
+    @login_required
+    def dashboard_page():
+        search_query = request.args.get('search', '')
+        uid = session.get('uid')
+        entries = passman.search_passwords(uid, search_query)
+        return render_template('dashboard.html', username=session.get('username'), entries=entries, search_query=search_query)
+
+
+    @app.route('/add_password', methods=['POST'])
+    @RateLimit.GLOBAL_IP
+    @login_required
+    def add_password():
+        label = request.form.get('label')
+        login = request.form.get('login')
         password = request.form.get('password')
-        uid = passman.auth_user(username, password)
-        if uid is None:
-            flash('Authentication failed!', Flash_Category.ERROR)
+        uid = session.get('uid')
+        if passman.add_password(uid, label, login, password):
+            flash('Password added successfully!', FlashCategory.SUCCESS)
         else:
-            return login(uid, username)
-    
-    return render_template('login.html', username=username)
-
-
-@app.route('/logout')
-@RateLimit.GLOBAL_IP
-@login_required
-def logout():
-    uid = session.get('uid', '')
-    logging.info(f"Successful LOGOUT for uid={uid}")
-    session.clear()
-    flash('Logged out.', Flash_Category.INFO)
-    return redirect(url_for('login_page'))
-
-
-@app.route('/dashboard', methods=['GET'])
-@RateLimit.GLOBAL_IP
-@login_required
-def dashboard_page():
-    search_query = request.args.get('search', '')
-    uid = session.get('uid')
-    entries = passman.search_passwords(uid, search_query)
-    return render_template('dashboard.html', username=session.get('username'), entries=entries, search_query=search_query)
-
-
-@app.route('/add_password', methods=['POST'])
-@RateLimit.GLOBAL_IP
-@login_required
-def add_password():
-    label = request.form.get('label')
-    login = request.form.get('login')
-    password = request.form.get('password')
-    uid = session.get('uid')
-    if passman.add_password(uid, label, login, password):
-        flash('Password added successfully!', Flash_Category.SUCCESS)
-    else:
-        flash('Failed to add password!', Flash_Category.ERROR)
-    return redirect(request.referrer or url_for('dashboard_page'))
-
-
-@app.route('/decrypt_password', methods=['POST'])
-@RateLimit.MASTERPASS_SENDER_IP
-@login_required
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-def decrypt_password():
-    data = request.get_json()
-    pid = data.get('pid')
-    masterpass = data.get('masterpass')
-    
-    if pid is None or masterpass is None or not isinstance(masterpass, str):
-        return {"success": False, "error": "Invalid request"}, 400
-    
-    try:
-        pid = int(pid)
-    except (ValueError, TypeError):
-        return {"success": False, "error": "Non-integer pid"}, 400
-    
-    uid = session.get('uid')
-    ownerid = passman.get_password_owner(pid)
-    if uid != ownerid:
-        logging.warning(f"Unauthorized DECRYPT attempt from uid={uid} for pid={pid} (owner uid={ownerid})")
-        return {"success": False, "error": "Unauthorized access"}, 403
-    
-    password = passman.decrypt_password(pid, masterpass)
-    masterpass = None
-
-    if password is None:
-        return {'success': False, "error": "Decryption failed"}, 400
-
-    return {'success': True, 'password': password}
-
-
-@app.route('/update_password', methods=['POST'])
-@RateLimit.MASTERPASS_SENDER_IP
-@login_required
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-def update_password():
-    pid = request.form.get('pid')
-    
-    if not pid:
-        flash('Invalid request', Flash_Category.ERROR)
+            flash('Failed to add password!', FlashCategory.ERROR)
         return redirect(request.referrer or url_for('dashboard_page'))
-    
-    try:
-        pid = int(pid)
-    except (ValueError, TypeError):
-        flash('Invalid request', Flash_Category.ERROR)
-        return redirect(request.referrer or url_for('dashboard_page'))
-    
-    uid = session.get('uid')
-    ownerid = passman.get_password_owner(pid)
-    if uid != ownerid:
-        logging.warning(f"Unauthorized UPDATE attempt from uid={uid} for pid={pid} (owner uid={ownerid})")
-        flash('Failed to update the password!', Flash_Category.ERROR)
-        return redirect(request.referrer or url_for('dashboard_page'))
-    
-    new_password = request.form.get('new_password')
-    
-    if not new_password:
-        flash('Please enter a new password to update.', Flash_Category.INFO)
-    else:
-        masterpass = request.form.get('masterpass')
-        success = passman.update_password(pid, masterpass, new_password)
+
+
+    @app.route('/decrypt_password', methods=['POST'])
+    @RateLimit.MASTERPASS_SENDER_IP
+    @login_required
+    @RateLimit.MASTERPASS_TARGET_ACCOUNT
+    def decrypt_password():
+        data = request.get_json()
+        pid = data.get('pid')
+        masterpass = data.get('masterpass')
+
+        if pid is None or masterpass is None or not isinstance(masterpass, str):
+            return {"success": False, "error": "Invalid request"}, 400
+
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            return {"success": False, "error": "Non-integer pid"}, 400
+
+        uid = session.get('uid')
+        ownerid = passman.get_password_owner(pid)
+        if uid != ownerid:
+            logging.warning(f"Unauthorized DECRYPT attempt from uid={uid} for pid={pid} (owner uid={ownerid})")
+            return {"success": False, "error": "Unauthorized access"}, 403
+
+        password = passman.decrypt_password(pid, masterpass)
         masterpass = None
-        if success:
-            flash('Password updated successfully!', Flash_Category.SUCCESS)
+
+        if password is None:
+            return {'success': False, "error": "Decryption failed"}, 400
+
+        return {'success': True, 'password': password}
+
+
+    @app.route('/update_password', methods=['POST'])
+    @RateLimit.MASTERPASS_SENDER_IP
+    @login_required
+    @RateLimit.MASTERPASS_TARGET_ACCOUNT
+    def update_password():
+        pid = request.form.get('pid')
+
+        if not pid:
+            flash('Invalid request', FlashCategory.ERROR)
+            return redirect(request.referrer or url_for('dashboard_page'))
+
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            flash('Invalid request', FlashCategory.ERROR)
+            return redirect(request.referrer or url_for('dashboard_page'))
+
+        uid = session.get('uid')
+        ownerid = passman.get_password_owner(pid)
+        if uid != ownerid:
+            logging.warning(f"Unauthorized UPDATE attempt from uid={uid} for pid={pid} (owner uid={ownerid})")
+            flash('Failed to update the password!', FlashCategory.ERROR)
+            return redirect(request.referrer or url_for('dashboard_page'))
+
+        new_password = request.form.get('new_password')
+
+        if not new_password:
+            flash('Please enter a new password to update.', FlashCategory.INFO)
         else:
-            flash('Failed to update the password!', Flash_Category.ERROR)
-    
-    return redirect(request.referrer or url_for('dashboard_page'))
+            masterpass = request.form.get('masterpass')
+            success = passman.update_password(pid, masterpass, new_password)
+            masterpass = None
+            if success:
+                flash('Password updated successfully!', FlashCategory.SUCCESS)
+            else:
+                flash('Failed to update the password!', FlashCategory.ERROR)
+
+        return redirect(request.referrer or url_for('dashboard_page'))
 
 
-@app.route('/delete_password', methods=['POST'])
-@RateLimit.MASTERPASS_SENDER_IP
-@login_required
-@RateLimit.MASTERPASS_TARGET_ACCOUNT
-def delete_password():
-    pid = request.form.get('pid')
-    
-    if not pid:
-        flash('Invalid request', Flash_Category.ERROR)
+    @app.route('/delete_password', methods=['POST'])
+    @RateLimit.MASTERPASS_SENDER_IP
+    @login_required
+    @RateLimit.MASTERPASS_TARGET_ACCOUNT
+    def delete_password():
+        pid = request.form.get('pid')
+
+        if not pid:
+            flash('Invalid request', FlashCategory.ERROR)
+            return redirect(request.referrer or url_for('dashboard_page'))
+
+        try:
+            pid = int(pid)
+        except (ValueError, TypeError):
+            flash('Invalid request', FlashCategory.ERROR)
+            return redirect(request.referrer or url_for('dashboard_page'))
+
+        uid = session.get('uid')
+        ownerid = passman.get_password_owner(pid)
+        if uid != ownerid:
+            logging.warning(f"Unauthorized DELETE attempt from uid={uid} for pid={pid} (owner uid={ownerid})")
+            flash('Failed to delete the password!', FlashCategory.ERROR)
+            return redirect(request.referrer or url_for('dashboard_page'))
+
+        masterpass = request.form.get('masterpass')
+        success = passman.delete_password(pid, masterpass)
+        masterpass = None
+
+        if success:
+            flash('Password deleted successfully!', FlashCategory.SUCCESS)
+        else:
+            flash('Failed to delete the password!', FlashCategory.ERROR)
+
         return redirect(request.referrer or url_for('dashboard_page'))
     
-    try:
-        pid = int(pid)
-    except (ValueError, TypeError):
-        flash('Invalid request', Flash_Category.ERROR)
-        return redirect(request.referrer or url_for('dashboard_page'))
     
-    uid = session.get('uid')
-    ownerid = passman.get_password_owner(pid)
-    if uid != ownerid:
-        logging.warning(f"Unauthorized DELETE attempt from uid={uid} for pid={pid} (owner uid={ownerid})")
-        flash('Failed to delete the password!', Flash_Category.ERROR)
-        return redirect(request.referrer or url_for('dashboard_page'))
-    
-    masterpass = request.form.get('masterpass')
-    success = passman.delete_password(pid, masterpass)
-    masterpass = None
-    
-    if success:
-        flash('Password deleted successfully!', Flash_Category.SUCCESS)
-    else:
-        flash('Failed to delete the password!', Flash_Category.ERROR)
-    
-    return redirect(request.referrer or url_for('dashboard_page'))
-
-
-#----------
-#   MAIN
-#----------
+    return app
 
 
 def main():
+    LOG_PATH = "PassManWeb.log"
+    logging.basicConfig(
+        filename=LOG_PATH,
+        filemode="a",
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        level=logging.INFO
+    )
     logging.info("========== Starting PassManWeb ==========")
+    
+    app = create_app()
+    
+    # Config
+    debug = False
+    localhost = True # True - server hosted only on 127.0.0.1, False - server visible on the network.
+    port = 5000
     
     if localhost:
         app.run(debug=debug)
