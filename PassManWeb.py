@@ -1,4 +1,7 @@
+from pathlib import Path
 from functools import wraps
+from typing import ClassVar
+from dataclasses import dataclass
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_session import Session
 from flask_limiter import Limiter
@@ -7,6 +10,8 @@ from flask_wtf.csrf import CSRFProtect, CSRFError
 from secrets import token_urlsafe
 from datetime import timedelta
 from PassManLib import PassMan, RegStatus
+import configparser
+import argparse
 import logging
 import os
 
@@ -86,10 +91,17 @@ def login_required(view):
 def create_app(db_path: str = None) -> Flask:
     app = Flask(__name__)
     
-    key = os.environ.get("FLASK_SECRET_KEY") # Make sure to set this ENV variable before running the server.
+    ENV_VAR = "FLASK_SECRET_KEY"
+    key = os.environ.get(ENV_VAR) # Make sure to set this ENV variable before running the server.
     if not key:
         #key = token_urlsafe(32) # Fallback to random key if ENV variable is not set. NOT RECOMMENDED! WILL CAUSE ISSUES!
-        raise RuntimeError("FLASK_SECRET_KEY env variable is not set!")
+        raise RuntimeError(f"""
+            
+            {ENV_VAR} environment variable is not set!
+            
+            Make sure to generate a secure key (f.e. `python` -> `import secrets` -> `secrets.token_urlsafe(32)`)
+            and store it in the {ENV_VAR} environment variable.
+        """)
     app.secret_key = key
     
     app.config.update(
@@ -342,27 +354,84 @@ def create_app(db_path: str = None) -> Flask:
     return app
 
 
+@dataclass
+class Config:
+    DEFAULT_CONFIG_PATH: ClassVar[str] = "settings.cfg"
+    DEFAULT_DEBUG: ClassVar[bool] = False
+    DEFAULT_LOCALHOST: ClassVar[bool] = True
+    DEFAULT_PORT: ClassVar[int] = 5000
+    DEFAULT_DB_PATH: ClassVar[str] = "vault.db"
+    DEFAULT_LOG_PATH: ClassVar[str] = "PassManWeb.log"
+
+    debug: bool = DEFAULT_DEBUG
+    localhost: bool = DEFAULT_LOCALHOST
+    port: int = DEFAULT_PORT
+    db_path: str = DEFAULT_DB_PATH
+    log_path: str = DEFAULT_LOG_PATH
+    
+    @staticmethod
+    def _create_default(path: str):
+        cfg = configparser.ConfigParser()
+        
+        cfg["server"]   = {
+            "debug": Config.DEFAULT_DEBUG,
+            "localhost": Config.DEFAULT_LOCALHOST,
+            "port": Config.DEFAULT_PORT
+        }
+        cfg["database"] = {"path": Config.DEFAULT_DB_PATH}
+        cfg["logging"]  = {"path": Config.DEFAULT_LOG_PATH}
+        
+        with open(path, "w") as f:
+            cfg.write(f)
+
+    @staticmethod
+    def parse_file(path: str) -> "Config":
+        if not Path(path).exists():
+            Config._create_default(path)
+            return Config()
+        
+        cfg = configparser.ConfigParser()
+        cfg.read(path)
+        return Config(
+            debug = cfg.getboolean("server", "debug", fallback=Config.DEFAULT_DEBUG),
+            localhost = cfg.getboolean("server", "localhost", fallback=Config.DEFAULT_LOCALHOST),
+            port = cfg.getint("server", "port", fallback=Config.DEFAULT_PORT),
+            db_path = cfg.get("database", "path", fallback=Config.DEFAULT_DB_PATH),
+            log_path = cfg.get("logging", "path", fallback=Config.DEFAULT_LOG_PATH)
+        )
+
+
 def main():
-    LOG_PATH = "PassManWeb.log"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default=Config.DEFAULT_CONFIG_PATH, help = f"Path to the configuration file (Default: {Config.DEFAULT_CONFIG_PATH})")
+    parser.add_argument("--debug", default=None, action="store_true", help = f"Runs Flask in debug mode")
+    parser.add_argument("--localhost", default=None, action="store_true", help = f"Server will only be visible on localhost")
+    parser.add_argument("--port", default=None, type=int, help = f"Port for Flask to listen on (Default: {Config.DEFAULT_PORT})")
+    parser.add_argument("--db", default=None, help = f"Path to the vault database file (Default: {Config.DEFAULT_DB_PATH})")
+    parser.add_argument("--log", default=None, help = f"Destination path for logs (Default: {Config.DEFAULT_LOG_PATH})")
+    
+    args = parser.parse_args()
+    config = Config.parse_file(args.config)
+    
+    # Passed arguments take precedence over the configuration file
+    if args.debug is not None: config.debug = args.debug
+    if args.localhost is not None: config.localhost = args.localhost
+    if args.port is not None: config.port = args.port
+    if args.db is not None: config.db_path = args.db
+    if args.log is not None: config.log_path = args.log
+    
     logging.basicConfig(
-        filename=LOG_PATH,
+        filename=config.log_path,
         filemode="a",
         format="%(asctime)s [%(levelname)s] %(message)s",
         level=logging.INFO
     )
     logging.info("========== Starting PassManWeb ==========")
     
-    app = create_app()
+    app = create_app(config.db_path)
+    host = "127.0.0.1" if config.localhost else "0.0.0.0"
     
-    # Config
-    debug = False
-    localhost = True # True - server hosted only on 127.0.0.1, False - server visible on the network.
-    port = 5000
-    
-    if localhost:
-        app.run(debug=debug)
-    else:
-        app.run(host="0.0.0.0", port=port, debug=debug)
+    app.run(host=host, port=config.port, debug=config.debug)
 
 if __name__ == "__main__":
     main()
